@@ -1,0 +1,403 @@
+// =============================================================================
+// BIMcred — Prisma schema
+// =============================================================================
+// Target database: PostgreSQL. The public demo runs on Neon's free tier and the
+// same provider is used locally, because Prisma fixes the provider per schema
+// and the local and deployed builds must share one generated client.
+//
+// Connection strings (see .env.example):
+//   DATABASE_URL  pooled runtime URL used by the app
+//   DIRECT_URL    direct/unpooled URL used by `prisma db push` and the seed
+//
+//   Neon pooled URL example:
+//     postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require&pgbouncer=true&connection_limit=1
+//
+// Design notes that used to be SQLite constraints and are kept on purpose:
+//   * Enum-like columns are Strings with the allowed values documented in a
+//     `///` comment. Application code validates them, so adding a status does
+//     not require a migration.
+//   * Sets (software tools, disciplines, job competencies) are comma-separated
+//     strings; structured audit payloads are JSON-encoded strings.
+//   * Email uniqueness is enforced on a lowercased value by the application.
+//
+// All timestamps are stored in UTC. IDs are cuids so that records stay globally
+// unique and can be created optimistically.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Identity and access
+// -----------------------------------------------------------------------------
+
+/// A single login identity for every portal: candidate, employer, or admin.
+/// One User has at most one CandidateProfile and at most one EmployerProfile.
+/// `email` must be stored lowercased (SQLite comparisons are case-sensitive).
+model User {
+  id           String   @id @default(cuid())
+  /// Login identifier. Unique; application lowercases before write/read.
+  email        String   @unique
+  /// bcrypt hash (cost 10+). Never returned by read models or audit logs.
+  passwordHash String
+  name         String
+  /// Allowed values: CANDIDATE | EMPLOYER | ADMIN
+  role         String
+  /// E.164-normalised mobile number, when supplied. Not unique at the DB
+  /// level: shared family/office numbers are resolved by policy in the app.
+  phone        String?
+  phoneVerified Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  candidate      CandidateProfile?
+  employer       EmployerProfile?
+  verifications  PhoneVerification[]
+  attempts       AssessmentAttempt[]
+  auditLogs      AuditLog[]
+  reportsMade    Report[]           @relation("Reporter")
+  /// Reports where this user is the subject, independent of the candidate
+  /// profile attached to the report. Kept nullable so moderation rows can be
+  /// written before the subject account is fully resolved.
+  reportsAgainst Report[]           @relation("Reported")
+
+  @@index([role])
+  @@index([phone])
+  @@index([createdAt])
+}
+
+/// Candidate-facing profile. 1:1 with User. Contains the public talent-search
+/// surface plus the latest verified LOC score.
+model CandidateProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  headline          String @default("")
+  currentTitle      String @default("")
+  /// Free-text city/state, e.g. "Austin, TX". Normalised on read for search.
+  location          String @default("")
+  yearsExperience   Int    @default(0)
+  /// Allowed values: OPEN | NOT_LOOKING | CONTRACT
+  availability      String @default("OPEN")
+  /// Allowed values: US_CITIZEN | GREEN_CARD | H1B | OTHER
+  workAuthorization String @default("US_CITIZEN")
+  remoteOk          Boolean @default(true)
+  bio               String @default("")
+  /// Comma-separated software keys. Allowed: revit, navisworks, archicad,
+  /// tekla, civil3d, dynamo, ifc, solibri, bim360, recap
+  software          String @default("")
+  /// Comma-separated discipline keys. Allowed: architecture, structure, mep,
+  /// infrastructure, construction, facilities
+  disciplines       String @default("")
+
+  /// When false the candidate is excluded from employer search but keeps
+  /// access to applications and their own dashboard.
+  visible       Boolean   @default(true)
+  /// Latest verified Level of Competence, 100-500. Null until first attempt.
+  locScore      Int?
+  /// Human label for locScore. Allowed: Emerging | Developing |
+  /// Competent | Proficient | Expert
+  locBand       String?
+  locVerifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications Application[]
+  views        TalentView[]
+  /// Denormalised convenience link for candidate-scoped attempt history.
+  /// The authoritative owner is still AssessmentAttempt.userId.
+  attempts     AssessmentAttempt[]
+  reports      Report[]            @relation("ReportedCandidate")
+
+  // Talent search: visible candidates ordered by LOC, then location and
+  // experience filters.
+  @@index([visible, locScore])
+  @@index([visible, location])
+  @@index([visible, yearsExperience])
+  @@index([visible, locBand])
+  @@index([locBand])
+  @@index([locScore])
+}
+
+/// Short-lived US mobile verification codes. Codes are stored hashed in
+/// production; the demo seed uses plain values so reviewers can inspect them.
+model PhoneVerification {
+  id        String    @id @default(cuid())
+  userId    String
+  /// 6-digit code. Hash before persisting outside local development.
+  code      String
+  expiresAt DateTime
+  /// Set when the code is successfully redeemed. A consumed row is never
+  /// reusable, even if expiresAt is still in the future.
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt])
+  @@index([expiresAt])
+}
+
+// -----------------------------------------------------------------------------
+// Assessment
+// -----------------------------------------------------------------------------
+
+/// One 15-question LOC assessment run. Attempts are immutable after submit;
+/// only status/rawScore/locScore/durationSec are written on completion.
+model AssessmentAttempt {
+  id          String    @id @default(cuid())
+  userId      String
+  startedAt   DateTime  @default(now())
+  submittedAt DateTime?
+  /// Allowed values: IN_PROGRESS | COMPLETED | EXPIRED | ABANDONED
+  status      String    @default("IN_PROGRESS")
+  /// Weighted points earned (0-100 scale in the current scorer).
+  rawScore    Int       @default(0)
+  /// LOC mapped to 100-500 on submit. Null while IN_PROGRESS.
+  locScore    Int?
+  durationSec Int       @default(0)
+  /// SHA-256 of the request IP plus a server-side salt. Never the raw IP.
+  ipHash      String    @default("")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Optional denormalised pointer used by candidate dashboards so a history
+  /// query does not need to join through User. Set at attempt start.
+  candidateId String?
+  candidate   CandidateProfile? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+
+  answers AssessmentAnswer[]
+
+  @@index([userId, submittedAt])
+  @@index([userId, status])
+  @@index([candidateId, submittedAt])
+  @@index([status, startedAt])
+}
+
+/// One answered question inside an attempt. Rows are written as the candidate
+/// answers and frozen at submit. The (attemptId, questionId) pair is unique so
+/// retries/replays cannot duplicate an answer.
+model AssessmentAnswer {
+  id       String @id @default(cuid())
+  attemptId String
+  /// Stable question identifier from the assessment bank (e.g. q01).
+  questionId String
+  /// One of the 10 competency keys: iso19650, lod, clash, quantity,
+  /// schedules, interop, standards, delivery, digital-twin, automation.
+  competency   String
+  /// 1 = recall, 2 = applied, 3 = analysis.
+  difficulty   Int     @default(1)
+  selectedOption String
+  correct        Boolean @default(false)
+  /// Scoring weight (1-3 in the current bank).
+  weight         Int     @default(1)
+
+  attempt AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([competency])
+  @@index([attemptId, correct])
+}
+
+// -----------------------------------------------------------------------------
+// Employer side
+// -----------------------------------------------------------------------------
+
+/// Employer-facing company profile. 1:1 with User. `verified` is the admin
+/// approval gate; unverified employers may browse but not unlock candidates.
+model EmployerProfile {
+  id       String @id @default(cuid())
+  userId   String @unique
+
+  companyName String @default("")
+  website     String @default("")
+  industry    String @default("")
+  /// Free-text band, e.g. "11-50", "201-500", "501-1000".
+  companySize String @default("")
+  hqLocation  String @default("")
+  verified    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs         Job[]
+  subscription Subscription?
+  views        TalentView[]
+  applications Application[] @relation("EmployerApplications")
+
+  @@index([verified])
+  @@index([companyName])
+}
+
+/// A posted role. Competencies are a comma-separated subset of the 10
+/// competency keys. minLoc/maxLoc express the acceptable LOC window.
+model Job {
+  id         String @id @default(cuid())
+  employerId String
+
+  title          String
+  description    String @default("")
+  location       String @default("")
+  /// Allowed values: REMOTE | HYBRID | ONSITE
+  workMode       String @default("HYBRID")
+  /// Allowed values: FULL_TIME | CONTRACT | PART_TIME | INTERNSHIP
+  employmentType String @default("FULL_TIME")
+  /// Inclusive LOC window, 100-500.
+  minLoc         Int    @default(0)
+  maxLoc         Int    @default(500)
+  /// Annual USD range. Null means "not disclosed".
+  salaryMin      Int?
+  salaryMax      Int?
+  /// Comma-separated competency keys (see AssessmentAnswer.competency).
+  competencies   String @default("")
+  /// Allowed values: DRAFT | OPEN | CLOSED
+  status         String @default("OPEN")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employer     EmployerProfile @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  applications Application[]
+
+  @@index([status, workMode])
+  @@index([employerId])
+  @@index([status, createdAt])
+  @@index([location])
+}
+
+/// A candidate's application to a job. employerId is denormalised from
+/// Job.employerId so the employer pipeline board is a single-table scan.
+model Application {
+  id          String @id @default(cuid())
+  jobId       String
+  /// CandidateProfile.id (not User.id).
+  candidateId String
+  /// EmployerProfile.id, denormalised from Job.employerId.
+  employerId  String
+
+  /// Allowed values: SUBMITTED | REVIEWED | SHORTLISTED | INTERVIEW | OFFER |
+  /// HIRED | REJECTED | WITHDRAWN
+  status     String @default("SUBMITTED")
+  note       String @default("")
+  /// 0-100 heuristic match between candidate LOC/skills and the job.
+  matchScore Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job       Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate CandidateProfile @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  employer  EmployerProfile  @relation("EmployerApplications", fields: [employerId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, candidateId])
+  @@index([employerId, status])
+  @@index([candidateId, createdAt])
+  @@index([employerId, createdAt])
+}
+
+/// Audit trail of paid candidate unlocks. The unique pair makes repeat views
+/// free: the app checks first, then creates a row and decrements credits in a
+/// single transaction.
+model TalentView {
+  id          String   @id @default(cuid())
+  employerId  String
+  candidateId String
+  /// Credits charged for this unlock (1 in the current pricing model).
+  unlockCost  Int      @default(1)
+  note        String   @default("")
+  createdAt   DateTime @default(now())
+
+  employer  EmployerProfile  @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  candidate CandidateProfile @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([employerId, candidateId])
+  @@index([candidateId])
+  @@index([employerId, createdAt])
+}
+
+/// Billing state for an employer. Credits are the unit of candidate unlocks.
+/// Invariant: creditsRemaining >= 0, enforced by conditional updates.
+model Subscription {
+  id         String @id @default(cuid())
+  employerId String @unique
+
+  /// Allowed values: TRIAL | STARTER | GROWTH | ENTERPRISE
+  plan              String   @default("TRIAL")
+  creditsRemaining  Int      @default(10)
+  creditsUsed       Int      @default(0)
+  currentPeriodEnd  DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employer EmployerProfile @relation(fields: [employerId], references: [id], onDelete: Cascade)
+
+  @@index([currentPeriodEnd])
+}
+
+// -----------------------------------------------------------------------------
+// Platform operations
+// -----------------------------------------------------------------------------
+
+/// Append-only operator/security log. `meta` is a JSON-encoded string.
+/// actorId is nullable so system jobs can write entries and so account
+/// deletion does not erase the audit trail (onDelete: SetNull).
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  /// Dotted verb, e.g. "employer.verified", "candidate.unlocked".
+  action    String
+  /// Model name, e.g. "EmployerProfile", "Subscription", "System".
+  entity    String
+  entityId  String?
+  /// JSON object encoded as a string. Never contains passwords, raw IPs,
+  /// phone numbers, or free-text candidate notes.
+  meta      String   @default("{}")
+  createdAt DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@index([actorId, createdAt])
+}
+
+/// Candidate report raised by an employer (or admin) for moderation.
+model Report {
+  id          String @id @default(cuid())
+  reporterId  String
+  /// CandidateProfile.id of the reported candidate.
+  candidateId String
+
+  reason     String
+  details    String @default("")
+  /// Allowed values: OPEN | RESOLVED | DISMISSED
+  status     String @default("OPEN")
+  resolution String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Optional pointer to the candidate's User row. Nullable because a report
+  /// can be filed against a profile whose login has already been removed.
+  reportedUserId String?
+  reportedUser   User? @relation("Reported", fields: [reportedUserId], references: [id], onDelete: SetNull)
+
+  reporter  User             @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  candidate CandidateProfile @relation("ReportedCandidate", fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([status, createdAt])
+  @@index([candidateId])
+  @@index([reporterId])
+}

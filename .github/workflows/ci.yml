@@ -1,0 +1,121 @@
+name: CI
+
+# Type-check and production-build the app on every push and pull request.
+# Database-backed checks are opt-in (see the `integration` job) so that forks and
+# PRs without database credentials still get a fast, meaningful signal.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  build:
+    name: typecheck and build (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the current LTS line; 26 matches the development environment.
+        node: [22, 26]
+    env:
+      # Dummy values only: generation and the build must not require a live
+      # database. Prisma needs syntactically valid URLs to read the schema.
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/bimcred?schema=public"
+      DIRECT_URL: "postgresql://ci:ci@localhost:5432/bimcred?schema=public"
+      SESSION_SECRET: "ci-only-not-a-production-secret-0123456789abcdefghij"
+      APP_URL: "http://localhost:3000"
+      DEV_SHOW_OTP: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # The repository owner may not have committed a lockfile yet, so `npm ci` is
+      # attempted first (reproducible when a lockfile exists) and `npm install` is the
+      # fallback. Once package-lock.json is committed, this should become plain `npm ci`
+      # so that the dependency tree is actually pinned in CI.
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint if configured
+        run: npm run lint --if-present
+
+      # `npm run build` generates the client again so the deploy path is exactly
+      # the one Vercel uses. No database connection is needed at build time.
+      - name: Build
+        run: npm run build
+
+  # Opt-in database job. It is skipped unless the repository variable
+  # ENABLE_DB_TESTS is set to "true" (Settings -> Variables -> Actions). It uses a
+  # throwaway Postgres service container and never touches the hosted Neon demo.
+  integration:
+    name: database smoke (opt-in)
+    if: ${{ vars.ENABLE_DB_TESTS == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: bimcred
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/bimcred?schema=public"
+      DIRECT_URL: "postgresql://ci:ci@localhost:5432/bimcred?schema=public"
+      SESSION_SECRET: "ci-integration-only-secret-0123456789abcdefghij"
+      APP_URL: "http://localhost:3000"
+      DEV_SHOW_OTP: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Create and seed the database
+        run: npm run setup
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests if configured
+        run: npm test --if-present

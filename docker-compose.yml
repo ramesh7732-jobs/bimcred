@@ -1,0 +1,94 @@
+# BIMcred — optional local Postgres
+#
+# The app targets PostgreSQL everywhere (Neon in the hosted demo). Docker is not
+# required: the recommended local database is a free Neon branch. This file is
+# for reviewers who prefer a fully local, offline-capable stack.
+#
+# Usage:
+#   Database only (recommended for `npm run dev` on the host):
+#     docker compose up -d db
+#     # then set in .env:
+#     # DATABASE_URL="postgresql://bimcred:bimcred_local_only@localhost:5432/bimcred?schema=public"
+#     # DIRECT_URL="postgresql://bimcred:bimcred_local_only@localhost:5432/bimcred?schema=public"
+#     npx prisma db push --force-reset   # throwaway local schema
+#     npm run db:seed
+#     npm run dev
+#
+#   Full stack (app + db), requires a Dockerfile at the repo root:
+#     docker compose --profile full up --build
+#     open http://localhost:3000
+#
+# There is no prisma/migrations directory yet; `db push` is correct for this local
+# stack. A real deployment must baseline a migration history and use `migrate deploy`.
+#
+# Secrets: every value below is a local-only default and is meant to be overridden by
+# your shell or `.env`. Nothing here is a production credential. Do not reuse these
+# passwords, and do not commit a populated `.env`.
+#
+# Build context is the repository root, so a `.dockerignore` is required. It must exclude
+# at least: node_modules, .next, .git, .env*, *.db, *.db-journal, prisma/dev.db, coverage,
+# and any local logs. Otherwise the image build copies dependencies, a stale build cache,
+# and possibly secrets into the layer.
+#
+# The `app` service runs a production build. `DEV_SHOW_OTP` is set to "false" below
+# because the app reads that flag directly and does not gate it on NODE_ENV; the
+# hosted no-SMS demo needs it true, a real deployment must keep it false.
+
+name: bimcred
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: bimcred-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bimcred}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bimcred_local_only}
+      POSTGRES_DB: ${POSTGRES_DB:-bimcred}
+      # Data checksums catch silent corruption on a developer machine.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      # Exposed on the host so tools like Prisma Studio can connect. Change POSTGRES_PORT
+      # if something else already owns 5432.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - bimcred_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `$$` escapes Compose interpolation so the container shell expands its own env.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  app:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bimcred-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: "production"
+      # Service name `db` is the hostname inside the Compose network. Not `localhost`.
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-bimcred}:${POSTGRES_PASSWORD:-bimcred_local_only}@db:5432/${POSTGRES_DB:-bimcred}?schema=public&connection_limit=5"
+      # Local-only fallback. There is no startup assertion rejecting a placeholder.
+      SESSION_SECRET: ${SESSION_SECRET:-local-only-session-secret-replace-me-32b}
+      # Reserved: no module reads APP_URL, and there is no CSRF origin check.
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      # Read directly and not gated by NODE_ENV, so it must be false here.
+      DEV_SHOW_OTP: "false"
+      SMS_PROVIDER: "console"
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    # Assumes the image keeps the Prisma CLI and `prisma/schema.prisma`. This stack is
+    # throwaway, so it applies the schema directly. A real deployment must run
+    # `npx prisma migrate deploy` against a committed migration history instead.
+    command: ["sh", "-c", "npx prisma db push --skip-generate && npm run start"]
+
+volumes:
+  bimcred_pgdata:
+    name: bimcred_pgdata
