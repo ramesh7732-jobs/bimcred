@@ -1605,7 +1605,7 @@ intended release seams; they are not a working flag system.
    dropping verification: it is the product.
 2. **Serverless connections.** Each function instance opens a Prisma pool. Without a pooled
    connection string, Postgres connection limits are hit long before CPU is. Use the provider's
-   pooler (`?pgbouncer=true&connection_limit=1`) and keep transactions short.
+   pooler (`?pgbouncer=true&connection_limit=5`) and keep transactions short.
 3. **Payment fees scale linearly with GMV** and are the largest line at 50k users. That is a good
    problem: they are a percentage of revenue, not a fixed cost.
 4. **Compute is not the cliff.** A talent search over 50 000 profiles with the indexes in section 8.4

@@ -10,7 +10,7 @@
 //   DIRECT_URL    direct/unpooled URL used by `prisma db push` and the seed
 //
 //   Neon pooled URL example:
-//     postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require&pgbouncer=true&connection_limit=1
+//     postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require&pgbouncer=true&connection_limit=5
 //
 // Design notes that used to be SQLite constraints and are kept on purpose:
 //   * Enum-like columns are Strings with the allowed values documented in a

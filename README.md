@@ -105,7 +105,7 @@ The login page also lists these accounts so you can switch portals without hunti
 The whole stack fits inside free tiers: **Vercel Hobby** for the Next.js app and **Neon Free** for PostgreSQL. No credit card is required for either.
 
 1. **Create the production database.** In Neon, create a project (for example `bimcred`, region `us-east-2`). Copy the **pooled** connection string (its host contains `-pooler`) and the **direct** one.
-2. **Seed it once from your machine.** In `.env`, set `DATABASE_URL` to the pooled URL (append `&pgbouncer=true&connection_limit=1` if it is missing) and `DIRECT_URL` to the direct URL. Then run:
+2. **Seed it once from your machine.** In `.env`, set `DATABASE_URL` to the pooled URL (append `&pgbouncer=true&connection_limit=5` if it is missing) and `DIRECT_URL` to the direct URL. Then run:
 
    ```bash
    npx prisma db push

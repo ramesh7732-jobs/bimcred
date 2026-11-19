@@ -50,7 +50,7 @@ Vercel + Neon deployment, domain, SMS swap-in, rollback, smoke tests, troublesho
 5. Set the local values in `.env`. The minimum is:
 
    ```dotenv
-   DATABASE_URL="postgresql://user:password@ep-example-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require&pgbouncer=true&connection_limit=1"
+   DATABASE_URL="postgresql://user:password@ep-example-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require&pgbouncer=true&connection_limit=5"
    DIRECT_URL="postgresql://user:password@ep-example.us-east-2.aws.neon.tech/neondb?sslmode=require"
    SESSION_SECRET="<paste the generated value>"
    NODE_ENV="development"
@@ -100,7 +100,7 @@ npm run dev
 
 | Variable | Read by the app | Required locally | Example | Notes |
 | --- | --- | --- | --- | --- |
-| `DATABASE_URL` | Yes (Prisma) | Yes | Neon pooled URL | Runtime URL. Append `?sslmode=require&pgbouncer=true&connection_limit=1` for serverless. |
+| `DATABASE_URL` | Yes (Prisma) | Yes | Neon pooled URL | Runtime URL. Append `?sslmode=require&pgbouncer=true&connection_limit=5` for serverless. |
 | `DIRECT_URL` | Prisma CLI only | Yes | Neon direct URL | Unpooled URL for `db push` and seeding. Not used by the running app. |
 | `SESSION_SECRET` | Yes (`src/server/auth.ts`) | Yes | 32 random bytes, base64 | Rotating it logs everyone out; there is no previous-key overlap. In production the app throws instead of falling back to the public dev string. |
 | `APP_URL` | No | No | `http://localhost:3000` | Reserved. There is no origin check and no email link builder. |
@@ -242,7 +242,7 @@ The repository is already configured for this path: `prisma/schema.prisma` decla
 
    | Key | Value |
    | --- | --- |
-   | `DATABASE_URL` | Pooled Neon URL with `?sslmode=require&pgbouncer=true&connection_limit=1` |
+   | `DATABASE_URL` | Pooled Neon URL with `?sslmode=require&pgbouncer=true&connection_limit=5` |
    | `DIRECT_URL` | Direct Neon URL with `?sslmode=require` |
    | `SESSION_SECRET` | 32 random bytes, base64, generated fresh (not the local one) |
    | `DEV_SHOW_OTP` | `true` for the no-SMS demo; `false` once a real SMS provider is connected |
@@ -385,7 +385,7 @@ exists), and a session cookie edited by one character (signed out).
 | `@prisma/client did not initialize yet` | Client not generated after install or schema change | `npm run db:generate`, then restart the dev server and the TypeScript server. |
 | `P1001: Can't reach database server` | Wrong host, Neon project suspended, or IP allowlist | Wake the Neon project, check the connection string and `sslmode=require`, confirm the host is the pooled endpoint for runtime. |
 | `prepared statement "s0" already exists` | The pooled URL is missing the PgBouncer flag | Append `&pgbouncer=true` to `DATABASE_URL` in Vercel and redeploy. |
-| `too many connections for role` | Runtime is using the direct URL, or `connection_limit` is too high for serverless | Use the pooled URL at runtime, keep `connection_limit=1`, and reserve `DIRECT_URL` for `db push` and the seed. |
+| `too many connections for role` | Runtime is using the direct URL, or `connection_limit` is too high for serverless | Use the pooled URL at runtime, keep `connection_limit=5`, and reserve `DIRECT_URL` for `db push` and the seed. |
 | `P3005: The database schema is not empty` during a reset | A DDL command was run without `--force-reset` against an existing schema | For the disposable demo database, run `npm run db:reset` (drops and reseeds) or create a fresh Neon branch. |
 | Build fails with "Dynamic server usage" | A page reading cookies was statically rendered | Add `export const dynamic = "force-dynamic"` to the portal layout; do not silence the warning. |
 | Dev OTP is not shown | `DEV_SHOW_OTP` is not `"true"`, the account is already verified, or the page is rendering after the code expired | Set `DEV_SHOW_OTP="true"`, restart the server, use an unverified candidate, and request a new code. Codes live in the database, so a restart does not invalidate them. |
