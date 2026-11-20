@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { db } from "@/server/db";
+import { notifySignup } from "@/server/notify";
 import {
   clearSessionCookie,
   hashPassword,
@@ -126,6 +127,13 @@ export async function signupAction(form: FormData): Promise<void> {
       },
     })
     .catch(() => undefined);
+
+  await notifySignup({
+    name,
+    email,
+    role,
+    companyName: role === "EMPLOYER" ? companyName : undefined,
+  });
 
   await setSessionCookie({ uid: user.id, email: user.email, name: user.name, role });
 

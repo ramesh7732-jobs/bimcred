@@ -535,7 +535,7 @@ Invariants:
 
 ## 6. Notification matrix
 
-`[ASSUMPTION]` **The prototype ships no notification system.** It has no in-app feed, no email and no SMS. Status changes and moderation decisions are visible to the affected user when they next load the relevant page, and every write lands in `/admin/audit`. The matrix below is the target-product design and is included so the intent is reviewable alongside the shipped audit trail.
+`[ASSUMPTION]` **The prototype ships no user-facing notification system.** It has no in-app feed and no SMS. The only outbound email is an operator notification when a Candidate or Employer signs up. Status changes and moderation decisions are visible to the affected user when they next load the relevant page, and every write lands in `/admin/audit`. The matrix below is the target-product design and is included so the intent is reviewable alongside the shipped audit trail.
 
 | Event | In-app | Email | SMS | Timing |
 | --- | --- | --- | --- | --- |

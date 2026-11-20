@@ -257,7 +257,7 @@ Use `npm run db:reset` whenever you want a clean reviewer state after clicking t
 
 These are deliberate scope cuts, documented in the design docs:
 
-- **No real SMS, email, payments or object storage.** The OTP is generated and stored server-side; in dev it is displayed on screen. Credit packs are mock purchases that update the subscription balance; there is no invoice table.
+- **No real SMS, transactional email, payments or object storage.** The only outbound email is a signup notification to `ramesh@jobs2india.com` (override with `SIGNUP_NOTIFY_EMAIL`), sent through FormSubmit's free AJAX endpoint. The OTP is generated and stored server-side; in dev it is displayed on screen. Credit packs are mock purchases that update the subscription balance; there is no invoice table.
 - **One completed assessment attempt** per account. Retakes, a cooldown policy and mid-attempt answer autosave are designed but not shipped.
 - **Phone verification is lightweight.** There is no wrong-guess lockout and no cross-account phone uniqueness; both are documented target-product controls.
 - **Employer verification is manual and text-based.** No document upload, KYB or domain DNS check.

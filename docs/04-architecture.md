@@ -1279,7 +1279,7 @@ from new searches but cannot revoke an existing introduction.
 | Credit spend | Exactly-once requirement; a queue would make the UX "maybe unlocked". | See 7.4. |
 | OTP generation and storage | The candidate is waiting for the code. | Request fails with an error flag; no code is stored. |
 | OTP delivery | There is no delivery step. | The code is stored and, in the demo, rendered when `DEV_SHOW_OTP="true"`. |
-| Transactional email | Not implemented. | No email is sent. |
+| Transactional email | Signup notification only. | New Candidate/Employer signups POST to FormSubmit's free AJAX endpoint; the recipient defaults to `ramesh@jobs2india.com` and is configurable with `SIGNUP_NOTIFY_EMAIL`. Delivery failures are logged and never block signup. |
 
 The asymmetry is deliberate: block on things that change money or records, never block on a
 notification. The prototype simply has no notification path to block on.
@@ -1542,6 +1542,7 @@ before taking real customers.
 | `DEV_SHOW_OTP` | Yes (`verify-phone/page.tsx`) | Renders the current OTP in the candidate UI. **Not** gated by `NODE_ENV`; required for the no-SMS demo, turn off when SMS is connected. | No |
 | `APP_URL` | No | Documented canonical origin. No module reads it; there is no origin check or email link builder. | No |
 | `SMS_PROVIDER`, `SMS_API_KEY`, `SMS_API_SECRET`, `SMS_SENDER_ID`, `SMS_WEBHOOK_SECRET` | No | Reserved for a real SMS adapter. The demo generates the code without a transport. | Keys: yes |
+| `SIGNUP_NOTIFY_EMAIL` | No | Signup notification recipient; defaults to `ramesh@jobs2india.com`. | Not secret |
 | `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM` | No | Reserved for transactional email. | Keys: yes |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | No | Reserved for billing. The billing page is simulated. | Yes |
 | `BLOB_READ_WRITE_TOKEN` | No | Reserved for object storage. No uploads exist. | Yes |

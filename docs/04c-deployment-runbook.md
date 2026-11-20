@@ -108,7 +108,8 @@ npm run dev
 | `DEV_SHOW_OTP` | Yes (`verify-phone/page.tsx`) | Yes for the OTP demo | `true` | Read directly; **not** gated by `NODE_ENV`. Required for the no-SMS hosted demo; turn it off when a real SMS provider is connected. |
 | `LOG_LEVEL` | No | No | `debug` | Reserved for a logger that does not exist. |
 | `SMS_PROVIDER`, `SMS_API_KEY`, `SMS_API_SECRET`, `SMS_SENDER_ID`, `SMS_WEBHOOK_SECRET` | No | No | `console` / empty | Reserved for a real SMS adapter. The code is generated locally and never sent. |
-| `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM` | No | No | `console` / empty | Reserved; no email is sent. |
+| `SIGNUP_NOTIFY_EMAIL` | No | No | `ramesh@jobs2india.com` | Recipient for the free FormSubmit signup notification. First delivery needs a one-time confirmation click from the recipient. |
+| `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM` | No | No | `console` / empty | Reserved; no transactional email is sent. |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | No | No | empty | Reserved; billing is simulated. |
 | `BLOB_READ_WRITE_TOKEN` | No | No | empty | Reserved; no uploads exist. |
 | `FEATURE_SMS_LIVE`, `FEATURE_BILLING`, `FEATURE_OBJECT_STORAGE` | No | No | `false` | Reserved flags; no code reads them, so they are not kill switches. |
