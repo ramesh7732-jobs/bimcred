@@ -46,14 +46,10 @@ export function DemoAccountList({ accounts }: { accounts: DemoAccount[] }) {
               Fill
             </button>
           </div>
-          <dl className="mt-2 space-y-0.5 border-t border-ink/5 pt-2 text-[11px]">
+          <dl className="mt-2 border-t border-ink/5 pt-2 text-[11px]">
             <div className="flex gap-2">
               <dt className="w-12 shrink-0 text-ink/40">Email</dt>
               <dd className="break-all font-mono text-ink/70">{demo.email}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="w-12 shrink-0 text-ink/40">Password</dt>
-              <dd className="font-mono text-ink/70">{demo.password}</dd>
             </div>
           </dl>
         </div>

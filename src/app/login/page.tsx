@@ -98,9 +98,9 @@ export default async function LoginPage({
       </form>
 
       <p className="mt-4 text-[11px] leading-relaxed text-ink/40">
-        Use Fill to copy a demo email and password into the form, then press Sign in. These
-        passwords are seeded for the public demo only. In production this screen would also offer
-        SSO and password reset through the identity provider.
+        Use Fill to load a demo account, then press Sign in. Passwords are not shown here; they are
+        documented in the README for reviewers. In production this screen would also offer SSO and
+        password reset through the identity provider.
       </p>
     </AuthShell>
   );
