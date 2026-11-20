@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AuthShell } from "@/components/auth-shell";
+import { DemoAccountList } from "@/components/demo-account-list";
 import { Field, Flash } from "@/components/ui";
 import { getSession, homeFor } from "@/server/auth";
 import { loginAction } from "@/server/actions/auth";
@@ -53,30 +54,9 @@ export default async function LoginPage({
       aside={
         <div className="rounded-2xl border border-ink/10 bg-white/60 p-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink/45">
-            Demo accounts · one click
+            Demo accounts · credentials
           </p>
-          <div className="mt-3 grid gap-2">
-            {DEMO_ACCOUNTS.map((demo) => (
-              <form key={demo.role} action={loginAction} className="flex items-center gap-3">
-                <input type="hidden" name="email" value={demo.email} />
-                <input type="hidden" name="password" value={demo.password} />
-                <button
-                  type="submit"
-                  className="group flex w-full items-center justify-between gap-3 rounded-xl border border-ink/10 bg-white px-3 py-2 text-left transition hover:border-ink/25 hover:bg-paper"
-                >
-                  <span>
-                    <span className="block text-[12.5px] font-semibold text-ink">
-                      Continue as {demo.role}
-                    </span>
-                    <span className="block text-[11px] text-ink/45">{demo.detail}</span>
-                  </span>
-                  <span className="text-ink/30 transition group-hover:translate-x-0.5 group-hover:text-accent">
-                    →
-                  </span>
-                </button>
-              </form>
-            ))}
-          </div>
+          <DemoAccountList accounts={DEMO_ACCOUNTS} />
         </div>
       }
     >
@@ -118,7 +98,8 @@ export default async function LoginPage({
       </form>
 
       <p className="mt-4 text-[11px] leading-relaxed text-ink/40">
-        Demo passwords are seeded for local testing only. In production this screen would also offer
+        Use Fill to copy a demo email and password into the form, then press Sign in. These
+        passwords are seeded for the public demo only. In production this screen would also offer
         SSO and password reset through the identity provider.
       </p>
     </AuthShell>
